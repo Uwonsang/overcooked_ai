@@ -258,7 +258,7 @@ class Overcooked(gym.Env):
     def seed(self, seed_num):
         self.base_env.level_seed = seed_num
 
-    def custom_init(self, base_env, featurize_fn, baselines=False):
+    def custom_init(self, base_env, seeding_num, featurize_fn, baselines=False):
         """
         base_env: OvercookedEnv
         featurize_fn: what function is used to featurize states returned in the 'both_agent_obs' field
@@ -269,7 +269,7 @@ class Overcooked(gym.Env):
             # seeding does not) reach, we set the same seed internally to all
             # environments. The effect is negligible, as all other randomness
             # is controlled by the actual run seeds
-            np.random.seed(0)
+            np.random.seed(seeding_num)
         self.base_env = base_env
         self.mdp = base_env.mdp
         self.featurize_fn = featurize_fn
@@ -308,8 +308,8 @@ class Overcooked(gym.Env):
             both_agents_ob = (ob_p1, ob_p0)
 
         obs = {"both_agent_obs": both_agents_ob,
-                "overcooked_state": next_state,
-                "other_agent_env_idx": 1 - self.agent_idx}
+               "overcooked_state": next_state,
+               "other_agent_env_idx": 1 - self.agent_idx}
         return obs, reward, done, info
 
     def reset(self):
