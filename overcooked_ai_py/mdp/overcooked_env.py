@@ -3,8 +3,7 @@ import tqdm
 import numpy as np
 from overcooked_ai_py.utils import mean_and_std_err
 from overcooked_ai_py.mdp.actions import Action
-from overcooked_ai_py.mdp.overcooked_mdp import OvercookedGridworld
-
+from overcooked_ai_py.mdp.overcooked_mdp import OvercookedGridworld, BASE_REW_SHAPING_PARAMS
 
 DEFAULT_ENV_PARAMS = {
     "horizon": 400
@@ -254,9 +253,37 @@ class Overcooked(gym.Env):
     and the true Overcooked state. When we encode the true state to feed to A1, we also need to know
     what agent index it has in the environment (as encodings will be index dependent).
     """
+    env_name = "Overcooked-v0"
 
-    def seed(self, seed_num):
-        self.base_env.level_seed = seed_num
+    def __init__(self, all_args, layout_list, seed, baseline=False):
+
+        if baseline:
+            # NOTE: To prevent the randomness of choosing agent indexes
+            # from leaking when using subprocess-vec-env in baselines (which
+            # seeding does not) reach, we set the same seed internally to all
+            # environments. The effect is negligible, as all other randomness
+            # is controlled by the actual run seeds
+            np.random.seed(0)
+        self.all_args = all_args
+        self.layout_list = layout_list
+        self.mdp_params = {'layout_name': self.layout_list[seed], 'start_order_list': None}
+        self.mdp_params.update({
+            "rew_shaping_params": BASE_REW_SHAPING_PARAMS
+        })
+        self.env_params = {'horizon': all_args.episode_length}
+        # self.mlp = MediumLevelPlanner.from_pickle_or_compute(
+        #     mdp=self.base_mdp,
+        #     mlp_params=NO_COUNTERS_PARAMS,
+        #     force_compute=False
+        # )
+
+        self.mdp_fn = lambda: OvercookedGridworld.from_layout_name(**self.mdp_params)
+        self.base_mdp = self.mdp_fn()
+        self.base_env = OvercookedEnv(self.mdp_fn, start_state_fn=None, **self.env_params)
+        self.featurize_fn = lambda state: self.base_mdp.lossless_state_encoding(state)  # Encoding obs for PPO
+        self.observation_space = self._setup_observation_space()
+        self.action_space = gym.spaces.Discrete(len(Action.ALL_ACTIONS))
+        self.reset()
 
     def custom_init(self, base_env, seeding_num, featurize_fn, baselines=False):
         """
@@ -277,11 +304,22 @@ class Overcooked(gym.Env):
         self.action_space = gym.spaces.Discrete(len(Action.ALL_ACTIONS))
         self.reset()
 
+    def seed(self, new_seed):
+        # new_layout = {'layout_name': self.layout_list[new_seed]}
+        self.mdp_params['layout_name'] = self.layout_list[new_seed]
+        self.mdp_fn = lambda: OvercookedGridworld.from_layout_name(**self.mdp_params)
+        self.base_mdp = self.mdp_fn()
+        self.base_env = OvercookedEnv(self.mdp_fn, start_state_fn=None, **self.env_params)
+        self.base_env.level_seed = new_seed
+
     def _setup_observation_space(self):
-        dummy_state = self.mdp.get_standard_start_state()
+        dummy_mdp = self.base_env.mdp
+        dummy_state = dummy_mdp.get_standard_start_state()
         obs_shape = self.featurize_fn(dummy_state)[0].shape
-        high = np.ones(obs_shape) * max(self.mdp.soup_cooking_time, self.mdp.num_items_for_soup, 5)
-        return gym.spaces.Box(high * 0, high, dtype=np.float32)
+        high = np.ones(obs_shape) * float("inf")
+        low = np.zeros(obs_shape)
+        # high = np.ones(obs_shape) * max(self.mdp.soup_cooking_time, self.mdp.num_items_for_soup, 5)
+        return gym.spaces.Box(low, high, dtype=np.float32)
 
     def step(self, action):
         """
@@ -323,6 +361,9 @@ class Overcooked(gym.Env):
         """
         self.base_env.reset()
         self.agent_idx = np.random.choice([0, 1])
+
+        self.mdp = self.base_env.mdp
+
         ob_p0, ob_p1 = self.featurize_fn(self.base_env.state)
         if self.agent_idx == 0:
             both_agents_ob = (ob_p0, ob_p1)
