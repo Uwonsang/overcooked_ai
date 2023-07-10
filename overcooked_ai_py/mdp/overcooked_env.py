@@ -4,6 +4,7 @@ import numpy as np
 from overcooked_ai_py.utils import mean_and_std_err
 from overcooked_ai_py.mdp.actions import Action
 from overcooked_ai_py.mdp.overcooked_mdp import OvercookedGridworld, BASE_REW_SHAPING_PARAMS
+from human_aware_rl.overcooked_ai.script_agent import SCRIPT_AGENTS
 
 DEFAULT_ENV_PARAMS = {
     "horizon": 400
@@ -265,6 +266,11 @@ class Overcooked(gym.Env):
             # is controlled by the actual run seeds
             np.random.seed(0)
         self.all_args = all_args
+        self.use_script = all_args.use_script
+        self.script_policy = all_args.script_policy
+        self.random_index = all_args.random_index
+        self.agent_idx = 0
+        self.other_agent_idx = 1
         self.layout_list = layout_list
         self.mdp_params = {'layout_name': self.layout_list[seed], 'start_order_list': None}
         self.mdp_params.update({
@@ -283,7 +289,9 @@ class Overcooked(gym.Env):
         self.featurize_fn = lambda state: self.base_mdp.lossless_state_encoding(state)  # Encoding obs for PPO
         self.observation_space = self._setup_observation_space()
         self.action_space = gym.spaces.Discrete(len(Action.ALL_ACTIONS))
-        self.reset()
+
+        self.script_agent = SCRIPT_AGENTS[self.script_policy[7:]]()
+        self.script_agent.reset(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
 
     def custom_init(self, base_env, seeding_num, featurize_fn, baselines=False):
         """
@@ -333,21 +341,27 @@ class Overcooked(gym.Env):
         assert all(self.action_space.contains(a) for a in action), "%r (%s) invalid"%(action, type(action))
         agent_action, other_agent_action = [Action.INDEX_TO_ACTION[a] for a in action]
 
-        if self.agent_idx == 0:
-            joint_action = (agent_action, other_agent_action)
-        else:
+        joint_action = [agent_action, other_agent_action]
+
+        if self.use_script:
+            joint_action[self.other_agent_idx] = self.script_agent.step(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
+        joint_action = tuple(joint_action)
+
+        if self.agent_idx == 1:
             joint_action = (other_agent_action, agent_action)
 
         next_state, reward, done, info = self.base_env.step(joint_action)
         ob_p0, ob_p1 = self.featurize_fn(next_state)
-        if self.agent_idx == 0:
-            both_agents_ob = (ob_p0, ob_p1)
-        else:
+
+        both_agents_ob = (ob_p0, ob_p1)
+        if self.agent_idx == 1:
             both_agents_ob = (ob_p1, ob_p0)
 
         obs = {"both_agent_obs": both_agents_ob,
                "overcooked_state": next_state,
                "other_agent_env_idx": 1 - self.agent_idx}
+
+
         return obs, reward, done, info
 
     def reset(self):
@@ -360,15 +374,23 @@ class Overcooked(gym.Env):
         have to deal with randomizing indices.
         """
         self.base_env.reset()
-        self.agent_idx = np.random.choice([0, 1])
+        
+        if self.random_index:
+            self.agent_idx = np.random.choice([0, 1])
+            self.other_agent_idx = 1 - self.agent_idx
+        
+        if self.use_script:
+            self.script_agent.reset(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
+
 
         self.mdp = self.base_env.mdp
-
         ob_p0, ob_p1 = self.featurize_fn(self.base_env.state)
-        if self.agent_idx == 0:
-            both_agents_ob = (ob_p0, ob_p1)
-        else:
+        
+        both_agents_ob = (ob_p0, ob_p1)
+        if self.agent_idx == 1:
             both_agents_ob = (ob_p1, ob_p0)
+
+
         return {"both_agent_obs": both_agents_ob,
                 "overcooked_state": self.base_env.state,
                 "other_agent_env_idx": 1 - self.agent_idx}
