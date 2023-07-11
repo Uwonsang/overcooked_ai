@@ -274,7 +274,8 @@ class Overcooked(gym.Env):
         self.layout_list = layout_list
         self.mdp_params = {'layout_name': self.layout_list[seed], 'start_order_list': None}
         self.mdp_params.update({
-            "rew_shaping_params": BASE_REW_SHAPING_PARAMS
+            "rew_shaping_params": BASE_REW_SHAPING_PARAMS,
+            "layouts_dir": all_args.layouts_dir
         })
         self.env_params = {'horizon': all_args.episode_length}
         # self.mlp = MediumLevelPlanner.from_pickle_or_compute(
