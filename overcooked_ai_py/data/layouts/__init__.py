@@ -1,7 +1,11 @@
 import os
 from overcooked_ai_py.utils import load_dict_from_file
 
-def read_layout_dict(layout_name, layout_dir):
+# LAYOUTS_DIR = os.path.dirname(os.path.abspath(__file__))
+# LAYOUTS_DIR = "/app/overcooked_layout_big"
+
+def read_layout_dict(layout_name,layout_dir):
+
 
     if os.path.abspath(__file__) != layout_dir:
         LAYOUTS_DIR = layout_dir

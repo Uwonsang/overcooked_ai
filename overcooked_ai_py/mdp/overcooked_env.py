@@ -5,6 +5,7 @@ from overcooked_ai_py.utils import mean_and_std_err
 from overcooked_ai_py.mdp.actions import Action
 from overcooked_ai_py.mdp.overcooked_mdp import OvercookedGridworld, BASE_REW_SHAPING_PARAMS
 from human_aware_rl.overcooked_ai.script_agent import SCRIPT_AGENTS
+#from recoder import VideoRecorder
 
 DEFAULT_ENV_PARAMS = {
     "horizon": 400
@@ -293,6 +294,8 @@ class Overcooked(gym.Env):
 
         self.script_agent = SCRIPT_AGENTS[self.script_policy[7:]]()
         self.script_agent.reset(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
+        self.video_save_dir = './result'
+        #self.video_recorder = VideoRecorder(self.video_save_dir)
 
     def custom_init(self, base_env, seeding_num, featurize_fn, baselines=False):
         """
@@ -329,7 +332,24 @@ class Overcooked(gym.Env):
         low = np.zeros(obs_shape)
         # high = np.ones(obs_shape) * max(self.mdp.soup_cooking_time, self.mdp.num_items_for_soup, 5)
         return gym.spaces.Box(low, high, dtype=np.float32)
-
+    def init_record(self):
+        self.video_recorder.init()
+    # def render(self, mode='rgb_array'):
+    #     image = self.visualizer.render_state(state=self.base_env.state, grid=self.base_env.mdp.terrain_mtx,
+    #                                          hud_data=StateVisualizer.default_hud_data(self.base_env.state))
+    #
+    #     buffer = pygame.surfarray.array3d(image)
+    #     image = copy.deepcopy(buffer)
+    #     image = np.flip(np.rot90(image, 3), 1)
+    #
+    #     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    #     image = cv2.resize(image, (528, 464))
+    #
+    #     return image
+    def env_print(self):
+        self.video_recorder.record(self.base_env)
+    def save_record(self):
+        self.video_recorder.save(f'evaluate.mp4')
     def step(self, action):
         """
         action:
@@ -341,11 +361,11 @@ class Overcooked(gym.Env):
         """
         assert all(self.action_space.contains(a) for a in action), "%r (%s) invalid"%(action, type(action))
         agent_action, other_agent_action = [Action.INDEX_TO_ACTION[a] for a in action]
-
         joint_action = [agent_action, other_agent_action]
 
         if self.use_script:
-            joint_action[self.other_agent_idx] = self.script_agent.step(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
+            joint_action[self.other_agent_idx] = self.script_agent.step(self.base_env.mdp, self.base_env.state,
+                                                                        self.other_agent_idx)
         joint_action = tuple(joint_action)
 
         if self.agent_idx == 1:
@@ -361,8 +381,6 @@ class Overcooked(gym.Env):
         obs = {"both_agent_obs": both_agents_ob,
                "overcooked_state": next_state,
                "other_agent_env_idx": 1 - self.agent_idx}
-
-
         return obs, reward, done, info
 
     def reset(self):
@@ -375,23 +393,21 @@ class Overcooked(gym.Env):
         have to deal with randomizing indices.
         """
         self.base_env.reset()
-        
+
         if self.random_index:
             self.agent_idx = np.random.choice([0, 1])
             self.other_agent_idx = 1 - self.agent_idx
-        
+
         if self.use_script:
             self.script_agent.reset(self.base_env.mdp, self.base_env.state, self.other_agent_idx)
 
-
         self.mdp = self.base_env.mdp
+
         ob_p0, ob_p1 = self.featurize_fn(self.base_env.state)
-        
+
         both_agents_ob = (ob_p0, ob_p1)
         if self.agent_idx == 1:
             both_agents_ob = (ob_p1, ob_p0)
-
-
         return {"both_agent_obs": both_agents_ob,
                 "overcooked_state": self.base_env.state,
                 "other_agent_env_idx": 1 - self.agent_idx}
